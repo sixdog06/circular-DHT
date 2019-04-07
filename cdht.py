@@ -32,9 +32,36 @@ def request_file():
 		command = input()
 		command = command.split()
 		if len(command) == 2 and command[0] == 'request' and command[1].isdigit():
-			if int(command[1]) >= 0 and int(command[1]) < 10000:
+			filename = int(command[1])
+			if filename >= 0 and filename < 10000:
+				hash_value = filename % 256 # hash function
+				print(f'File request message for {filename} has been sent to my successor.')
+				# file client
+				TCP_clientSocket = socket(AF_INET, SOCK_STREAM)
+				TCP_clientSocket.connect(('127.0.0.1', 50000 + first_successive_id))
+				file_request = str(own_id) + ' ' + str(own_id) + ' ' + str(hash_value)
+				TCP_clientSocket.send(file_request.encode())
+				TCP_clientSocket.close()
 
-				print('is', command[0], int(command[1]))
+def TCP_server():
+	while True:
+		try:
+			connectionSocket, addr = TCP_serverSocket.accept()
+			data = connectionSocket.recv(1024)			
+			if data:
+				predecessor_id = int(data.decode().split()[1])
+				hash_value = int(data.decode().split()[2]) % 256
+
+				if (hash_value > predecessor_id and hash_value <= own_id) or (own_id < predecessor_id and hash_value > predecessor_id) or (own_id < predecessor_id and hash_value <= own_id):
+					print('it is', hash_value)
+				else:
+					TCP_clientSocket = socket(AF_INET, SOCK_STREAM)
+					TCP_clientSocket.connect(('127.0.0.1', 50000 + first_successive_id))
+					file_request = str(int(data.decode().split()[0])) + ' ' + str(own_id) + ' ' + str(int(data.decode().split()[2]))
+					TCP_clientSocket.send(data)
+					TCP_clientSocket.close()					
+		except IOError:
+			pass
 
 # initialse the peer
 if len(sys.argv) == 6 and float(sys.argv[5]) >=0 and float(sys.argv[5]) <=1:
@@ -51,18 +78,31 @@ else:
 clientSocket = socket(AF_INET, SOCK_DGRAM)
 clientSocket.settimeout(3)
 
-# ping server
 serverPort = 50000 + own_id
+# ping server
 serverSocket = socket(AF_INET, SOCK_DGRAM)
 serverSocket.bind(('127.0.0.1', serverPort))
+
+# file server
+TCP_serverSocket = socket(AF_INET, SOCK_STREAM)
+TCP_serverSocket.bind(('127.0.0.1', serverPort))
+TCP_serverSocket.listen(5)
+
+'''
+# file client
+TCP_clientSocket = socket(AF_INET, SOCK_STREAM)
+TCP_clientSocket.connect(('127.0.0.1', serverPort))
+'''
 
 # define the thread
 thread_1 = threading.Thread(target=receive_ping_request)
 thread_2 = threading.Thread(target=receive_ping_response)
 thread_3 = threading.Thread(target=request_file)
+thread_4 = threading.Thread(target=TCP_server)
 thread_1.start()
 thread_2.start()
 thread_3.start()
+thread_4.start()
 
 time.sleep(3) # wait for initialization of the peers
 
@@ -72,6 +112,7 @@ while True:
 	clientSocket.sendto(str(own_id).encode(), ('127.0.0.1', 50000 + second_successive_id))
 	time.sleep(10)
 
+thread_4.join()
 thread_3.join()
 thread_2.join()
 thread_1.join()
