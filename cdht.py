@@ -9,25 +9,19 @@ import random
 import numpy as np
 import re
 
-# send event
-def snd(receiver_id, num_of_bytes, ack_number, filedata):
-	sender_message = ' '.join(('snd', str(round(time.time() - start_time, 2)), str(sequence_number), str(num_of_bytes), str(ack_number)))
-	log = sender_message
-
+# send packet
+def snd(file_clientSocket, receiver_id, num_of_bytes, ack_number, filedata):
+	sender_message = ' '.join(('snd', str(sequence_number), str(num_of_bytes), str(ack_number)))
 	sender_message = b'\r\n\r\n'.join((sender_message.encode(), filedata))
-	clientSocket.sendto(sender_message, ('127.0.0.1', 50000 + int(receiver_id))) # need re!!!!!!!!!!!!!!!!!!!!!!
-	print(log)
-	return log
+	file_clientSocket.sendto(sender_message, ('127.0.0.1', 50000 + int(receiver_id)))
 
-# receive event
-def rcv(receiver_index, num_of_bytes, ack_number, filedata):
-	sender_message = ' '.join(('rcv', str(time.time() - start_time), '0', str(ack_number), str(ack_number)))
-	log = sender_message
-	sender_message = sender_message.encode()
-	clientSocket.sendto(sender_message, ('127.0.0.1', 50000 + receiver_index))
-	return log
+# send ack
+def ack(receiver_id, num_of_bytes, ack_number):
+	ackSocket = socket(AF_INET, SOCK_DGRAM)
+	message = ' '.join(('ack', str(num_of_bytes + ack_number)))
+	ackSocket.sendto(message.encode(), ('127.0.0.1', 50000 + receiver_id))
 
-# receive the ping command
+# receive the ping command (UDP)
 def receive_ping_request():
 	while True:
 		predecessor_id, addr = serverSocket.recvfrom(1024)
@@ -39,16 +33,21 @@ def receive_ping_request():
 				f = open('received_file.pdf', 'rb+')
 				f.read() #move the cursor to the end
 				file_content = re.findall(b'.*\r\n\r\n([\d\D]*)', predecessor_id)[0]
-				print(file_content)
+				#print(file_content)
 				f.write(file_content)
 				f.close()
+				serverSocket.sendto(b'ack', addr)
+				#ack(1, 300, 1)
 		except UnicodeDecodeError: # predecessor_id is the chunk of file
 			f = open('received_file.pdf', 'wb+')
 			file_content = re.findall(b'.*\r\n\r\n([\d\D]*)', predecessor_id)[0]
-			print(file_content)
+			#print(file_content)
 			f.write(file_content)
 			f.close()
-# receive the ping response
+			serverSocket.sendto(b'ack', addr)
+			#ack(1, 300, 1)
+
+# receive the ping response (UDP)
 def receive_ping_response():
 	while True:
 		try:
@@ -60,7 +59,7 @@ def receive_ping_response():
 		except OSError:
 			pass
 
-# request a file
+# request a file (TCP)
 def request_file():
 	while True:
 		command = input()
@@ -81,27 +80,39 @@ def TCP_server():
 	while True:
 		try:
 			connectionSocket, addr = TCP_serverSocket.accept()
-			data = connectionSocket.recv(1024)			
+			data = connectionSocket.recv(1024)		
 			if data:
 				predecessor_id = int(data.decode().split()[1])
 				hash_value = int(data.decode().split()[2]) % 256 # hash function
 
 				if (hash_value > predecessor_id and hash_value <= own_id) or (own_id < predecessor_id and hash_value > predecessor_id) or (own_id < predecessor_id and hash_value <= own_id):
-					print(f'File {hash_value} is here.')
+					print(f'File {data.decode().split()[2]} is here.')
 					print(f'A response message, destined for peer {int(data.decode().split()[0])}, has been sent.')
 					print('We now start sending the file ………')
-					
-					# file sender def snd(receiver_id, num_of_bytes, ack_number, filedata):
+					responding_log = open('responding_log.txt', 'w+') # create a file called responding_log.txt
+					responding_log.close()
+
+					# transfer the file
 					try:
 						with open(data.decode().split()[2] + '.pdf', 'rb') as f:
 							file_clientSocket = socket(AF_INET, SOCK_DGRAM)
 							file_clientSocket.settimeout(1) # timeout = 1s
 							filedata = f.read(MSS)
 							while filedata:
-								snd(int(data.decode().split()[0]), len(filedata), 0, filedata)
+								#while True:
+								#snd(file_clientSocket, int(data.decode().split()[0]), len(filedata), 0, filedata)
+								sender_message = ' '.join(('own_id', 'snd', str(1), str(len(filedata)), str(1)))
+								sender_message = b'\r\n\r\n'.join((sender_message.encode(), filedata))
+								file_clientSocket.sendto(sender_message, ('127.0.0.1', 50000 + int(data.decode().split()[0])))
+								ack_message, (address, _) = file_clientSocket.recvfrom(1024)
+									#print('the data is', data)
+									#if data:
+									#	if str(data).split[0] == 'ack':
+									#		break
+									#else:
+									#	pass
 								filedata = f.read(MSS)
-								time.sleep(1)
-								#data, (address, _) = clientSocket.recvfrom(1024)
+							print('The file is sent.')
 							file_clientSocket.close()
 					except IOError:
 						pass
@@ -132,21 +143,21 @@ else:
 
 sequence_number = 1 # file transfer sequence number
 
-# ping client
+# ping client (UDP)
 clientSocket = socket(AF_INET, SOCK_DGRAM)
 clientSocket.settimeout(3)
 
 serverPort = 50000 + own_id
-# ping server
+# ping server (UDP)
 serverSocket = socket(AF_INET, SOCK_DGRAM)
 serverSocket.bind(('127.0.0.1', serverPort))
 
-# file server
+# file message TCP server
 TCP_serverSocket = socket(AF_INET, SOCK_STREAM)
 TCP_serverSocket.bind(('127.0.0.1', serverPort))
 TCP_serverSocket.listen(5)
 
-# define the thread
+# thread
 thread_1 = threading.Thread(target=receive_ping_request)
 thread_2 = threading.Thread(target=receive_ping_response)
 thread_3 = threading.Thread(target=request_file)
@@ -158,7 +169,7 @@ thread_4.start()
 
 time.sleep(3) # wait for initialization of the peers
 
-# send the ping request
+# send the ping request every 10s
 while True:
 	clientSocket.sendto(str(own_id).encode(), ('127.0.0.1', 50000 + first_successive_id))
 	clientSocket.sendto(str(own_id).encode(), ('127.0.0.1', 50000 + second_successive_id))
