@@ -6,15 +6,15 @@ from socket import *
 import threading
 import os
 import random
+import numpy as np
 
 # send event
-def snd(receiver_index, index, num_of_bytes, ack_number, filedata, filesize):
+def snd(receiver_id, num_of_bytes, ack_number, filedata):
 	sender_message = ' '.join(('snd', str(round(time.time() - start_time, 2)), str(sequence_number), str(num_of_bytes), str(ack_number)))
 	log = sender_message
-	if index*num_of_bytes < filesize:
-		filesize = (index * num_of_bytes + num_of_bytes)
+
 	sender_message = b' '.join((sender_message.encode(), filedata))
-	clientSocket.sendto(sender_message, ('127.0.0.1', 50000 + int(receiver_index)))
+	clientSocket.sendto(filedata, ('127.0.0.1', 50000 + int(receiver_id))) # need re
 	print(log)
 	return log
 
@@ -30,10 +30,21 @@ def rcv(receiver_index, num_of_bytes, ack_number, filedata):
 def receive_ping_request():
 	while True:
 		predecessor_id, addr = serverSocket.recvfrom(1024)
-		if predecessor_id and predecessor_id.decode().isdigit():
-			serverSocket.sendto(str(own_id).encode(), addr)
-			print(f'A ping request message was received from Peer {predecessor_id.decode()}.')
-
+		try:
+			if predecessor_id and predecessor_id.decode().isdigit():
+				serverSocket.sendto(str(own_id).encode(), addr)
+				print(f'A ping request message was received from Peer {predecessor_id.decode()}.')
+			else:
+				print(predecessor_id)
+				f = open('received_file.pdf', 'rb+')
+				f.read()
+				f.write(predecessor_id)
+				f.close()
+		except UnicodeDecodeError: # predecessor_id is the chunk of file
+			print(predecessor_id)
+			f = open('received_file.pdf', 'wb+')
+			f.write(predecessor_id)
+			f.close()
 # receive the ping response
 def receive_ping_response():
 	while True:
@@ -77,24 +88,20 @@ def TCP_server():
 					print(f'A response message, destined for peer {int(data.decode().split()[0])}, has been sent.')
 					print('We now start sending the file ………')
 					
-					# file sender
+					# file sender def snd(receiver_id, num_of_bytes, ack_number, filedata):
 					try:
 						with open(data.decode().split()[2] + '.pdf', 'rb') as f:
-							filedata = f.read(300)
 							file_clientSocket = socket(AF_INET, SOCK_DGRAM)
 							file_clientSocket.settimeout(1) # timeout = 1s
-
-							num_of_chunk = len(filedata) / MSS
-							for i in range(round(num_of_chunk)):
-								snd(int(data.decode().split()[0]), i, MSS, 0, filedata, len(filedata))
+							filedata = f.read(MSS)
+							while filedata:
+								snd(int(data.decode().split()[0]), len(filedata), 0, filedata)
+								filedata = f.read(MSS)
+								time.sleep(1)
 								#data, (address, _) = clientSocket.recvfrom(1024)
-							# send the remain part of file
-								if len(filedata) % MSS:						
-									snd(int(data.decode().split()[0]), num_of_chunk * MSS, MSS, 0, filedata, len(filedata))
 							file_clientSocket.close()
 					except IOError:
 						pass
-					
 
 				else:
 					print(f'File {data.decode().split()[2]} is not stored here.')
