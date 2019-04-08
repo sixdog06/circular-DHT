@@ -7,14 +7,15 @@ import threading
 import os
 import random
 import numpy as np
+import re
 
 # send event
 def snd(receiver_id, num_of_bytes, ack_number, filedata):
 	sender_message = ' '.join(('snd', str(round(time.time() - start_time, 2)), str(sequence_number), str(num_of_bytes), str(ack_number)))
 	log = sender_message
 
-	sender_message = b' '.join((sender_message.encode(), filedata))
-	clientSocket.sendto(filedata, ('127.0.0.1', 50000 + int(receiver_id))) # need re
+	sender_message = b'\r\n\r\n'.join((sender_message.encode(), filedata))
+	clientSocket.sendto(sender_message, ('127.0.0.1', 50000 + int(receiver_id))) # need re!!!!!!!!!!!!!!!!!!!!!!
 	print(log)
 	return log
 
@@ -35,15 +36,17 @@ def receive_ping_request():
 				serverSocket.sendto(str(own_id).encode(), addr)
 				print(f'A ping request message was received from Peer {predecessor_id.decode()}.')
 			else:
-				print(predecessor_id)
 				f = open('received_file.pdf', 'rb+')
-				f.read()
-				f.write(predecessor_id)
+				f.read() #move the cursor to the end
+				file_content = re.findall(b'.*\r\n\r\n([\d\D]*)', predecessor_id)[0]
+				print(file_content)
+				f.write(file_content)
 				f.close()
 		except UnicodeDecodeError: # predecessor_id is the chunk of file
-			print(predecessor_id)
 			f = open('received_file.pdf', 'wb+')
-			f.write(predecessor_id)
+			file_content = re.findall(b'.*\r\n\r\n([\d\D]*)', predecessor_id)[0]
+			print(file_content)
+			f.write(file_content)
 			f.close()
 # receive the ping response
 def receive_ping_response():
