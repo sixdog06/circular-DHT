@@ -8,7 +8,7 @@ import os
 import random
 import numpy as np
 import re
-
+300       	
 # send packets of file (UDP with ack)
 def snd(file_clientSocket, receiver_id, event, sequence_number, ack_num, num_of_bytes, filedata):
 	sender_message = ' '.join((event, str(sequence_number), str(ack_num), str(num_of_bytes)))
@@ -18,18 +18,18 @@ def snd(file_clientSocket, receiver_id, event, sequence_number, ack_num, num_of_
 def write_responding_log(event, run_time, sequence_number, data_size, ack_num):
 	responding_log = open('responding_log.txt', 'r+')
 	responding_log.read()
-	log = ' '.join((event, str(run_time), str(sequence_number), str(data_size), str(ack_num), '\n'))
+	log = f'{event:16}{str(run_time):16}{str(sequence_number):16}{str(data_size):16}{str(ack_num)}\n'
 	responding_log.write(log) 
 	responding_log.close()
 
 def write_requesting_log(event, run_time, sequence_number, data_size, ack_num):
 	requesting_log = open('requesting_log.txt', 'r+')
 	requesting_log.read()
-	log = ' '.join((event, str(run_time), str(sequence_number), str(data_size), str(ack_num), '\n'))
+	log = f'{event:16}{str(run_time):16}{str(sequence_number):16}{str(data_size):16}{str(ack_num)}\n'
 	requesting_log.write(log) 
 	requesting_log.close()
 
-# receive the ping command (UDP)
+# receive the ping command or file(UDP)
 def receive_ping_request():
 	while True:
 		predecessor_id, addr = serverSocket.recvfrom(1024)
@@ -43,22 +43,29 @@ def receive_ping_request():
 				file_content = re.findall(b'.*\r\n\r\n([\d\D]*)', predecessor_id)[0]
 				f.write(file_content)
 				f.close()
+				write_requesting_log('rcv', round(time.time()-start_time, 2), int(predecessor_id.split()[1].decode()), int(predecessor_id.split()[3].decode()), 0)
+				
 				ack_num = int(predecessor_id.split()[1].decode()) + int(predecessor_id.split()[3].decode())
 				ack_message = ' '.join(('ack', predecessor_id.split()[1].decode(), str(ack_num)))
 				serverSocket.sendto(ack_message.encode(), addr)
+				write_requesting_log('snd', round(time.time()-start_time, 2), 0, int(predecessor_id.split()[3].decode()), ack_num)
 				if predecessor_id.split()[0].decode() == 'fin_snd':
 					print('The file is received.')
 
 		except UnicodeDecodeError: # predecessor_id is the chunk of file
+			responding_log = open('requesting_log.txt', 'w+') # create a file called responding_log.txt
+			responding_log.close()
+			
 			f = open('received_file.pdf', 'wb+')
 			file_content = re.findall(b'.*\r\n\r\n([\d\D]*)', predecessor_id)[0]
 			f.write(file_content)
 			f.close()
-
+			write_requesting_log('rcv', round(time.time()-start_time, 2), int(predecessor_id.split()[1].decode()), int(predecessor_id.split()[3].decode()), 0)
+			
 			ack_num = int(predecessor_id.split()[1].decode()) + int(predecessor_id.split()[3].decode())
 			ack_message = ' '.join(('ack', predecessor_id.split()[1].decode(), str(ack_num)))
 			serverSocket.sendto(ack_message.encode(), addr)
-
+			write_requesting_log('snd', round(time.time()-start_time, 2), 0, int(predecessor_id.split()[3].decode()), ack_num)
 # receive the ping response (UDP)
 def receive_ping_response():
 	while True:
@@ -121,34 +128,39 @@ def TCP_server():
 						with open(data.decode().split()[2] + '.pdf', 'rb') as f:
 							file_clientSocket = socket(AF_INET, SOCK_DGRAM)
 							file_clientSocket.settimeout(1) # timeout = 1s
+							
 							filedata = f.read(MSS)
 							resend_flag = 0
+							drop_resend_flag = 0
 
 							while filedata:
 								while True:
-									if f.tell() >= filesize: # whether is the last send, use ack_num to send sequence number
-										snd(file_clientSocket, int(data.decode().split()[0]), 'fin_snd', sequence_number, 0, len(filedata), filedata)
-									else:
-										snd(file_clientSocket, int(data.decode().split()[0]), 'snd', sequence_number, 0, len(filedata), filedata)
-									
-									if resend_flag == 0:
-										# write snd log
-										write_responding_log('snd', round(time.time()-start_time, 2), sequence_number, len(filedata), 0)
-									else:
-										# write RTX log
-										write_responding_log('RTX', round(time.time()-start_time, 2), sequence_number, len(filedata), 0)
-										resend_flag = 0
+									if random.random() > drop_probability:
+										if f.tell() >= filesize: # whether is the last send, use ack_num to send sequence number
+											snd(file_clientSocket, int(data.decode().split()[0]), 'fin_snd', sequence_number, 0, len(filedata), filedata)
+										else:
+											snd(file_clientSocket, int(data.decode().split()[0]), 'snd', sequence_number, 0, len(filedata), filedata)
+										# write log
+										if resend_flag == 0:
+											# write snd log
+											write_responding_log('snd', round(time.time()-start_time, 2), sequence_number, len(filedata), 0)
 
-									ack_message, (address, _) = file_clientSocket.recvfrom(1024)
-									if ack_message:
-										if ack_message.split()[0].decode() == 'ack':
-											sequence_number = ack_message.split()[2].decode() # update sequence number
-											write_responding_log('rcv', round(time.time()-start_time, 2), 0, len(filedata), sequence_number)
-											break
-									else:
-										# write Drop log	
-										write_responding_log('DROP', round(time.time()-start_time, 2), 0, len(filedata), 0)
-										resend_flag = 1
+									try:
+										ack_message, (address, _) = file_clientSocket.recvfrom(1024)				
+										if ack_message:
+											if ack_message.split()[0].decode() == 'ack':
+												if resend_flag == 1:
+													write_responding_log('RTX', round(time.time()-start_time, 2), sequence_number, len(filedata), 0)
+												sequence_number = ack_message.split()[2].decode() # update sequence number		
+												write_responding_log('rcv', round(time.time()-start_time, 2), 0, len(filedata), sequence_number)
+												resend_flag = 0
+												break
+									except IOError:
+										if resend_flag == 1:
+											write_responding_log('RTX/Drop', round(time.time()-start_time, 2), sequence_number, len(filedata), 0)
+										else:
+											write_responding_log('DROP', round(time.time()-start_time, 2), sequence_number, len(filedata), 0)
+											resend_flag = 1
 								filedata = f.read(MSS)
 							print('The file is sent.')
 							file_clientSocket.close()				
@@ -164,8 +176,8 @@ def TCP_server():
 					TCP_clientSocket.close()
 					print('File request message has been forwarded to my successor.')	
 			elif data and data.decode().split()[2] == 'start':
-				print('We now start receiving the file ………')
 				print(f'Received a response message from peer {data.decode().split()[0]}, which has the file {data.decode().split()[1]}.')
+				print('We now start receiving the file ………')
 		except IOError:
 			pass
 

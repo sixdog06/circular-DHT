@@ -1,3 +1,0 @@
-xterm -hold -title "Peer 1" -e "python3 cdht.py 1 2 3 300 0.3" & xterm -hold -title "Peer 2" -e "python3 cdht.py  2 3 4 300 0.3" & xterm -hold -title "Peer 3" -e "python3 cdht.py  3 4 1 300 0.3" & xterm -hold -title "Peer 4" -e "python3 cdht.py  4 1 2 300 0.3" &
-
-
