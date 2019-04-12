@@ -105,16 +105,15 @@ def request_file():
 		elif command and command[0] == 'quit':
 			TCP_clientSocket = socket(AF_INET, SOCK_STREAM)
 			TCP_clientSocket.connect(('127.0.0.1', 50000 + predecessor_id[0]))
-			quit_message = ' '.join((str(first_successive_id), str(second_successive_id), 'quit'))
+			quit_message = ' '.join((str(first_successive_id), str(second_successive_id), 'quit', str(own_id)))
 			TCP_clientSocket.send(quit_message.encode())				
 			TCP_clientSocket.close()
 
 			TCP_clientSocket = socket(AF_INET, SOCK_STREAM)
 			TCP_clientSocket.connect(('127.0.0.1', 50000 + predecessor_id[1]))
-			quit_message = ' '.join((str(predecessor_id[0]), str(first_successive_id), 'quit'))
+			quit_message = ' '.join((str(predecessor_id[0]), str(first_successive_id), 'quit',  str(own_id)))
 			TCP_clientSocket.send(quit_message.encode())				
 			TCP_clientSocket.close()
-			print(f'Peer {own_id} will depart from the network.')
 			work_flag = 0
 
 # TCP server to get the file request
@@ -125,7 +124,8 @@ def TCP_server():
 	while True:
 		try:
 			connectionSocket, addr = TCP_serverSocket.accept()
-			data = connectionSocket.recv(1024)		
+			data = connectionSocket.recv(1024)
+			# start: know which peer has the file and start to receive, quit: departure of a peer
 			if data and not data.decode().split()[2] == 'start' and not data.decode().split()[2] == 'quit':
 				receive_message = int(data.decode().split()[1])
 				hash_value = int(data.decode().split()[2]) % 256 # hash function
@@ -135,14 +135,15 @@ def TCP_server():
 					print(f'A response message, destined for peer {int(data.decode().split()[0])}, has been sent.')
 					print('We now start sending the file ………')
 					
+					# let receiver know that sender is found
 					TCP_clientSocket = socket(AF_INET, SOCK_STREAM)
 					TCP_clientSocket.connect(('127.0.0.1', 50000 + int(data.decode().split()[0])))
 					reply = ' '.join((str(own_id), str(data.decode().split()[2]), 'start'))
 					TCP_clientSocket.send(reply.encode())
 					TCP_clientSocket.close()
 
-					
-					responding_log = open('responding_log.txt', 'w+') # create a file called responding_log.txt
+					# create a log file called responding_log.txt
+					responding_log = open('responding_log.txt', 'w+')
 					responding_log.close()
 					f = open(data.decode().split()[2] + '.pdf', 'rb')
 					filesize = len(f.read())
@@ -153,7 +154,6 @@ def TCP_server():
 						with open(data.decode().split()[2] + '.pdf', 'rb') as f:
 							file_clientSocket = socket(AF_INET, SOCK_DGRAM)
 							file_clientSocket.settimeout(1) # timeout = 1s
-							
 							filedata = f.read(MSS)
 							resend_flag = 0
 							drop_resend_flag = 0
@@ -180,7 +180,7 @@ def TCP_server():
 												write_responding_log('rcv', round(time.time()-start_time, 2), 0, len(filedata), sequence_number)
 												resend_flag = 0
 												break
-									except IOError:
+									except IOError: # timeout happens
 										if resend_flag == 1:
 											write_responding_log('RTX/Drop', round(time.time()-start_time, 2), sequence_number, len(filedata), 0)
 										else:
@@ -188,9 +188,8 @@ def TCP_server():
 											resend_flag = 1
 								filedata = f.read(MSS)
 							print('The file is sent.')
-							file_clientSocket.close()				
-
-					except IOError:
+							file_clientSocket.close()
+					except IOError: # if no file in this peer for correct name, do nothing
 						pass
 				else:
 					print(f'File {data.decode().split()[2]} is not stored here.')
@@ -206,12 +205,13 @@ def TCP_server():
 			elif data and data.decode().split()[2] == 'quit':
 				first_successive_id = int(data.decode().split()[0])
 				second_successive_id = int(data.decode().split()[1])
+				print(f'Peer {data.decode().split()[3]} will depart from the network.')
 				print(f'My first successor is now peer {first_successive_id}.')
 				print(f'My second successor is now peer {second_successive_id}.')
 		except IOError:
 			pass
 
-
+# record the start time of the program
 start_time = time.time()
 # initialse the peer
 if len(sys.argv) == 6 and float(sys.argv[5]) >=0 and float(sys.argv[5]) <=1:
@@ -256,6 +256,7 @@ time.sleep(3) # wait for initialization of the peers
 
 # send the ping request every 10s
 while True:
+	# work_flag(0: already depart)
 	if work_flag == 1:
 		m_1 = ' '.join(('first_successive_id', str(own_id)))
 		m_2 = ' '.join(('second_successive_id', str(own_id)))
