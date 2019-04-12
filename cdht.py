@@ -31,59 +31,45 @@ def write_requesting_log(event, run_time, sequence_number, data_size, ack_num):
 
 # receive the ping command or file(UDP)
 def receive_ping_request():
-	global predecessor_id
+	global ping_seq
 	while True:
-		receive_message, addr = serverSocket.recvfrom(1024)
-		try:
-			if receive_message and receive_message.decode().split()[0] == 'first_successive_id' or receive_message.decode().split()[0] == 'second_successive_id':
-				serverSocket.sendto(str(own_id).encode(), addr)
-				pid = int(receive_message.decode().split()[1])
-				if not pid in predecessor_id:
-					if receive_message.decode().split()[0] == 'first_successive_id':
-						predecessor_id[0] = pid
-					elif receive_message.decode().split()[0] == 'second_successive_id':
-						predecessor_id[1] = pid
-				print(f'A ping request message was received from Peer {receive_message.decode().split()[1]}.')
-			else:
-				f = open('received_file.pdf', 'rb+')
-				f.read() #move the cursor to the end
-				file_content = re.findall(b'.*\r\n\r\n([\d\D]*)', receive_message)[0]
-				f.write(file_content)
-				f.close()
-				write_requesting_log('rcv', round(time.time()-start_time, 2), int(receive_message.split()[1].decode()), int(receive_message.split()[3].decode()), 0)
-				
-				ack_num = int(receive_message.split()[1].decode()) + int(receive_message.split()[3].decode())
-				ack_message = ' '.join(('ack', receive_message.split()[1].decode(), str(ack_num)))
-				serverSocket.sendto(ack_message.encode(), addr)
-				write_requesting_log('snd', round(time.time()-start_time, 2), 0, int(receive_message.split()[3].decode()), ack_num)
-				if receive_message.split()[0].decode() == 'fin_snd':
-					print('The file is received.')
+		m_1 = ' '.join(('first_successive_id', str(own_id), str(ping_seq)))
+		m_2 = ' '.join(('second_successive_id', str(own_id), str(ping_seq)))
+		clientSocket_first.sendto(m_1.encode(), ('127.0.0.1', 50000 + first_successive_id))
+		receive_ping_response_first()
+		clientSocket_second.sendto(m_2.encode(), ('127.0.0.1', 50000 + second_successive_id))
+		receive_ping_response_second()
+		ping_seq += 1
+		time.sleep(10)
 
-		except UnicodeDecodeError: # receive_message is the chunk of file
-			responding_log = open('requesting_log.txt', 'w+') # create a file called responding_log.txt
-			responding_log.close()
-			
-			f = open('received_file.pdf', 'wb+')
-			file_content = re.findall(b'.*\r\n\r\n([\d\D]*)', receive_message)[0]
-			f.write(file_content)
-			f.close()
-			write_requesting_log('rcv', round(time.time()-start_time, 2), int(receive_message.split()[1].decode()), int(receive_message.split()[3].decode()), 0)
-			
-			ack_num = int(receive_message.split()[1].decode()) + int(receive_message.split()[3].decode())
-			ack_message = ' '.join(('ack', receive_message.split()[1].decode(), str(ack_num)))
-			serverSocket.sendto(ack_message.encode(), addr)
-			write_requesting_log('snd', round(time.time()-start_time, 2), 0, int(receive_message.split()[3].decode()), ack_num)
 # receive the ping response (UDP)
-def receive_ping_response():
-	while True:
-		try:
-			data, (address, _) = clientSocket.recvfrom(1024)
-			if data and int(data.decode()) == first_successive_id:
-				print(f'A ping response message was received from Peer {first_successive_id}')
-			elif data and int(data.decode()) == second_successive_id:
-				print(f'A ping response message was received from Peer {second_successive_id}')	
-		except OSError:
-			pass
+def receive_ping_response_first():
+	global first_alive_flag
+	global first_successive_id
+	try:
+		data, (address, _) = clientSocket_first.recvfrom(1024)
+		if data and int(data.decode().split()[0]) == first_successive_id:
+			print(f'A ping response message was received from Peer {first_successive_id}')
+			first_alive_flag = 0
+		print(data.decode().split()[1])
+	except OSError:
+		first_alive_flag += 1
+		if first_alive_flag >= 2:
+			print('safaef')
+
+def receive_ping_response_second():
+	global second_alive_flag
+	global second_successive_id
+	try:
+		data, (address, _) = clientSocket_second.recvfrom(1024)
+		if data and int(data.decode().split()[0]) == second_successive_id:
+			print(f'A ping response message was received from Peer {second_successive_id}')
+			second_alive_flag = 0
+		print(data.decode().split()[1])
+	except OSError:
+		second_alive_flag += 1
+		if second_alive_flag >= 2:
+			print('!!!!!')
 
 # request a file (TCP)
 def request_file():
@@ -105,15 +91,16 @@ def request_file():
 		elif command and command[0] == 'quit':
 			TCP_clientSocket = socket(AF_INET, SOCK_STREAM)
 			TCP_clientSocket.connect(('127.0.0.1', 50000 + predecessor_id[0]))
-			quit_message = ' '.join((str(first_successive_id), str(second_successive_id), 'quit', str(own_id)))
+			quit_message = ' '.join((str(first_successive_id), str(second_successive_id), 'quit'))
 			TCP_clientSocket.send(quit_message.encode())				
 			TCP_clientSocket.close()
 
 			TCP_clientSocket = socket(AF_INET, SOCK_STREAM)
 			TCP_clientSocket.connect(('127.0.0.1', 50000 + predecessor_id[1]))
-			quit_message = ' '.join((str(predecessor_id[0]), str(first_successive_id), 'quit',  str(own_id)))
+			quit_message = ' '.join((str(predecessor_id[0]), str(first_successive_id), 'quit'))
 			TCP_clientSocket.send(quit_message.encode())				
 			TCP_clientSocket.close()
+			print(f'Peer {own_id} will depart from the network.')
 			work_flag = 0
 
 # TCP server to get the file request
@@ -205,7 +192,6 @@ def TCP_server():
 			elif data and data.decode().split()[2] == 'quit':
 				first_successive_id = int(data.decode().split()[0])
 				second_successive_id = int(data.decode().split()[1])
-				print(f'Peer {data.decode().split()[3]} will depart from the network.')
 				print(f'My first successor is now peer {first_successive_id}.')
 				print(f'My second successor is now peer {second_successive_id}.')
 		except IOError:
@@ -227,10 +213,16 @@ else:
 predecessor_id = ['#', '#']
 sequence_number = 1 # file transfer sequence number
 work_flag = 1
+ping_seq = 0
+first_alive_flag = 0
+second_alive_flag = 0
 
 # ping client (UDP)
-clientSocket = socket(AF_INET, SOCK_DGRAM)
-clientSocket.settimeout(3)
+clientSocket_first = socket(AF_INET, SOCK_DGRAM)
+clientSocket_first.settimeout(2)
+
+clientSocket_second = socket(AF_INET, SOCK_DGRAM)
+clientSocket_second.settimeout(2)
 
 serverPort = 50000 + own_id
 # ping server (UDP)
@@ -244,13 +236,12 @@ TCP_serverSocket.listen(5)
 
 # thread
 thread_1 = threading.Thread(target=receive_ping_request)
-thread_2 = threading.Thread(target=receive_ping_response)
-thread_3 = threading.Thread(target=request_file)
-thread_4 = threading.Thread(target=TCP_server)
+thread_4 = threading.Thread(target=request_file)
+thread_5 = threading.Thread(target=TCP_server)
+
 thread_1.start()
-thread_2.start()
-thread_3.start()
 thread_4.start()
+thread_5.start()
 
 time.sleep(3) # wait for initialization of the peers
 
@@ -258,15 +249,49 @@ time.sleep(3) # wait for initialization of the peers
 while True:
 	# work_flag(0: already depart)
 	if work_flag == 1:
-		m_1 = ' '.join(('first_successive_id', str(own_id)))
-		m_2 = ' '.join(('second_successive_id', str(own_id)))
-		clientSocket.sendto(m_1.encode(), ('127.0.0.1', 50000 + first_successive_id))
-		clientSocket.sendto(m_2.encode(), ('127.0.0.1', 50000 + second_successive_id))
-		time.sleep(10)
+		receive_message, addr = serverSocket.recvfrom(1024)
+		try:
+			if receive_message and receive_message.decode().split()[0] == 'first_successive_id' or receive_message.decode().split()[0] == 'second_successive_id':
+				serverSocket.sendto((str(own_id) + ' ' + receive_message.decode().split()[2]).encode(), addr)
+				pid = int(receive_message.decode().split()[1])
+				if not pid in predecessor_id:
+					if receive_message.decode().split()[0] == 'first_successive_id':
+						predecessor_id[0] = pid
+					elif receive_message.decode().split()[0] == 'second_successive_id':
+						predecessor_id[1] = pid				
+				print(f'A ping request message was received from Peer {receive_message.decode().split()[1]}.')
+			else:
+				f = open('received_file.pdf', 'rb+')
+				f.read() # move the cursor to the end
+				file_content = re.findall(b'.*\r\n\r\n([\d\D]*)', receive_message)[0]
+				f.write(file_content)
+				f.close()
+				write_requesting_log('rcv', round(time.time()-start_time, 2), int(receive_message.split()[1].decode()), int(receive_message.split()[3].decode()), 0)
+				
+				ack_num = int(receive_message.split()[1].decode()) + int(receive_message.split()[3].decode())
+				ack_message = ' '.join(('ack', receive_message.split()[1].decode(), str(ack_num)))
+				serverSocket.sendto(ack_message.encode(), addr)
+				write_requesting_log('snd', round(time.time()-start_time, 2), 0, int(receive_message.split()[3].decode()), ack_num)
+				if receive_message.split()[0].decode() == 'fin_snd':
+					print('The file is received.')
+
+		except UnicodeDecodeError: # receive_message is the chunk of file
+			responding_log = open('requesting_log.txt', 'w+') # create a file called responding_log.txt
+			responding_log.close()
+			
+			f = open('received_file.pdf', 'wb+')
+			file_content = re.findall(b'.*\r\n\r\n([\d\D]*)', receive_message)[0]
+			f.write(file_content)
+			f.close()
+			write_requesting_log('rcv', round(time.time()-start_time, 2), int(receive_message.split()[1].decode()), int(receive_message.split()[3].decode()), 0)
+
+			ack_num = int(receive_message.split()[1].decode()) + int(receive_message.split()[3].decode())
+			ack_message = ' '.join(('ack', receive_message.split()[1].decode(), str(ack_num)))
+			serverSocket.sendto(ack_message.encode(), addr)
+			write_requesting_log('snd', round(time.time()-start_time, 2), 0, int(receive_message.split()[3].decode()), ack_num)
 	else:
 		sys.exit()
 
+thread_5.join()
 thread_4.join()
-thread_3.join()
-thread_2.join()
 thread_1.join()
