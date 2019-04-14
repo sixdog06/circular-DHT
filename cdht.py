@@ -78,16 +78,28 @@ def receive_ping_request():
 def receive_ping_response_first():
 	global first_alive_flag
 	global first_successive_id
+	global second_successive_id
 	try:
 		data, (address, _) = clientSocket_first.recvfrom(1024)
 		if data and int(data.decode().split()[0]) == first_successive_id:
 			print(f'A ping response message was received from Peer {first_successive_id}')
 			first_alive_flag = 0
-		print(data.decode().split()[1])
 	except OSError:
 		first_alive_flag += 1
 		if first_alive_flag >= 2:
-			print('safaef')
+			print(f'Peer {first_successive_id} is no longer alive.')
+
+			first_successive_id = second_successive_id
+			print(f'My first successor is now peer {first_successive_id}.')
+			
+			Kill_clientSocket = socket(AF_INET, SOCK_STREAM)
+			Kill_clientSocket.connect(('127.0.0.1', 50000 + first_successive_id))
+			message = ' '.join((str(own_id), 'first', 'kill'))
+			Kill_clientSocket.send(message.encode())
+			second_successive_id = int(Kill_clientSocket.recv(1024).decode())
+			print(f'My second successor is now peer {second_successive_id}.')
+			Kill_clientSocket.close()
+			
 
 def receive_ping_response_second():
 	global second_alive_flag
@@ -97,11 +109,19 @@ def receive_ping_response_second():
 		if data and int(data.decode().split()[0]) == second_successive_id:
 			print(f'A ping response message was received from Peer {second_successive_id}')
 			second_alive_flag = 0
-		print(data.decode().split()[1])
 	except OSError:
 		second_alive_flag += 1
 		if second_alive_flag >= 2:
-			print('!!!!!')
+			print(f'Peer {second_successive_id} is no longer alive.')
+			
+			print(f'My first successor is now peer {first_successive_id}.')
+			Kill_clientSocket = socket(AF_INET, SOCK_STREAM)
+			Kill_clientSocket.connect(('127.0.0.1', 50000 + first_successive_id))
+			message = ' '.join((str(own_id), 'second', 'kill'))
+			Kill_clientSocket.send(message.encode())
+			second_successive_id = int(Kill_clientSocket.recv(1024).decode())
+			print(f'My second successor is now peer {second_successive_id}.')
+			Kill_clientSocket.close()
 
 # request a file (TCP)
 def request_file():
@@ -145,7 +165,7 @@ def TCP_server():
 			connectionSocket, addr = TCP_serverSocket.accept()
 			data = connectionSocket.recv(1024)
 			# start: know which peer has the file and start to receive, quit: departure of a peer
-			if data and not data.decode().split()[2] == 'start' and not data.decode().split()[2] == 'quit':
+			if data and not data.decode().split()[2] == 'start' and not data.decode().split()[2] == 'quit' and not data.decode().split()[2] == 'kill':
 				receive_message = int(data.decode().split()[1])
 				hash_value = int(data.decode().split()[2]) % 256 # hash function
 
@@ -226,6 +246,8 @@ def TCP_server():
 				second_successive_id = int(data.decode().split()[1])
 				print(f'My first successor is now peer {first_successive_id}.')
 				print(f'My second successor is now peer {second_successive_id}.')
+			elif data and data.decode().split()[2] == 'kill':
+				connectionSocket.send(str(first_successive_id).encode())
 		except IOError:
 			pass
 
