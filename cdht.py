@@ -29,7 +29,7 @@ def write_requesting_log(event, run_time, sequence_number, data_size, ack_num):
     requesting_log.write(log) 
     requesting_log.close()
 
-# receive the ping command or file(UDP)
+# receive the ping request or file(UDP)
 def receive_ping_request():
     global predecessor_id
     while True:
@@ -81,7 +81,7 @@ def receive_ping_response_first():
     global second_successive_id
     try:
         data, (address, _) = clientSocket_first.recvfrom(1024)
-        if data and int(data.decode().split()[0]) == first_successive_id:
+        if data and int(data.decode().split()[0]) == first_successive_id and int(data.decode().split()[1]) == ping_seq:
             print(f'A ping response message was received from Peer {first_successive_id}')
             first_alive_flag = 0
     except OSError:
@@ -106,7 +106,7 @@ def receive_ping_response_second():
     global second_successive_id
     try:
         data, (address, _) = clientSocket_second.recvfrom(1024)
-        if data and int(data.decode().split()[0]) == second_successive_id:
+        if data and int(data.decode().split()[0]) == second_successive_id and int(data.decode().split()[1]) == ping_seq:
             print(f'A ping response message was received from Peer {second_successive_id}')
             second_alive_flag = 0
     except OSError:
@@ -118,6 +118,7 @@ def receive_ping_response_second():
             Kill_clientSocket = socket(AF_INET, SOCK_STREAM)
             Kill_clientSocket.connect(('127.0.0.1', 50000 + first_successive_id))
             message = ' '.join((str(own_id), 'second', 'kill'))
+            time.sleep(2) # wait update of successor
             Kill_clientSocket.send(message.encode())
             second_successive_id = int(Kill_clientSocket.recv(1024).decode())
             print(f'My second successor is now peer {second_successive_id}.')
@@ -290,12 +291,12 @@ TCP_serverSocket.listen(5)
 
 # thread
 thread_1 = threading.Thread(target=receive_ping_request)
-thread_4 = threading.Thread(target=request_file)
-thread_5 = threading.Thread(target=TCP_server)
+thread_2 = threading.Thread(target=request_file)
+thread_3 = threading.Thread(target=TCP_server)
 
 thread_1.start()
-thread_4.start()
-thread_5.start()
+thread_2.start()
+thread_3.start()
 
 time.sleep(3) # wait for initialization of the peers
 
@@ -314,6 +315,6 @@ while True:
     else:
         sys.exit()
 
-thread_5.join()
-thread_4.join()
+thread_3.join()
+thread_2.join()
 thread_1.join()

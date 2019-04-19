@@ -1,0 +1,83 @@
+\documentclass{article}
+
+\usepackage{mathtools}
+\usepackage{color}
+\usepackage[colorlinks,linkcolor=blue]{hyperref}
+\usepackage{geometry}
+\geometry{a4paper,left=2cm,right=2cm,top=2cm,bottom=2cm}
+\usepackage{listings}
+\lstset{frame=tb,
+	language=Python,
+	aboveskip=3mm,
+	belowskip=3mm,
+	showstringspaces=false,
+	columns=flexible,
+	basicstyle={\small\ttfamily},
+	numbers=none,
+	numberstyle=\tiny\color{gray},
+	keywordstyle=\color{blue},
+	breaklines=true,
+	breakatwhitespace=true,
+	tabsize=3
+}
+
+
+\begin{document}
+	\title{Assignment Report}
+	\author{Huanrui Zhang, z5185099}
+	\date{}
+	\maketitle
+	\textbf{note.} \par
+	\begin{enumerate}
+		\item python version: 3.7.1
+		\item press ctrl+c twice to kill a peer, please
+		\item demo link: \href{http://v.youku.com/}{http://v.youku.com/}
+	\end{enumerate}
+
+	\section{Introduction}
+		In my program, there are 1 main thread and 3 subthreads. The function of the main thread is sending ping request and receiving ping response by UDP. The first subthread receives the ping request or the file data by UDP. The second subthread sends the file request if get 'request file' command and makes peer departure if receive 'quit' command by TCP. The third subthread is the TCP server which receives the file request. If the file is not stored in this peer, it will transfer the message to the successor. Otherwise, it will send the file to the peer which sends the 'request file' command by UDP. Meanwhile, it deals with peer departure and kill peer events.
+	
+	\section{Ping}
+		The interval between pings is 10 second. The timeout for receiving ping response is 2 second. The number of lost packets before assuming the peer is killed is 3. The corrsponding code shows below.
+		Main thread: time.sleep(10) is the interval between pings.
+		\begin{lstlisting}
+			# send the ping request every 10s
+			while True:
+				# work_flag(0: already depart)
+				if work_flag == 1:
+					m_1 = ' '.join(('first_successive_id', str(own_id), str(ping_seq)))
+					m_2 = ' '.join(('second_successive_id', str(own_id), str(ping_seq)))
+					clientSocket_first.sendto(m_1.encode(), ('127.0.0.1', 50000 + first_successive_id))
+					receive_ping_response_first()
+					clientSocket_second.sendto(m_2.encode(), ('127.0.0.1', 50000 + second_successive_id))
+					receive_ping_response_second()
+					ping_seq += 1
+					time.sleep(10)
+				else:
+					sys.exit()
+		\end{lstlisting}
+		If the value of first-alive-flag is bigger than 2, then the peer successor is killed. 
+		\begin{lstlisting}
+		    try:
+				data, (address, _) = clientSocket_first.recvfrom(1024)
+				if data and int(data.decode().split()[0]) == first_successive_id:
+					print(f'A ping response message was received from Peer {first_successive_id}')
+					first_alive_flag = 0
+			except OSError:
+				first_alive_flag += 1
+				if first_alive_flag >= 2:
+					print(f'Peer {first_successive_id} is no longer alive.')
+					first_successive_id = second_successive_id
+					print(f'My first successor is now peer {first_successive_id}.')
+					Kill_clientSocket = socket(AF_INET, SOCK_STREAM)
+					Kill_clientSocket.connect(('127.0.0.1', 50000 + first_successive_id))
+					message = ' '.join((str(own_id), 'first', 'kill'))
+					Kill_clientSocket.send(message.encode())
+					second_successive_id = int(Kill_clientSocket.recv(1024).decode())
+					print(f'My second successor is now peer {second_successive_id}.')
+					Kill_clientSocket.close()
+		\end{lstlisting}
+			I have tested my program several times and find this time is reasonable. Ping request does not make the link crowded, but can know when the successor is not alive in a short time.
+	\section{possible improvements}
+		For detecting the killing peer event, I think that the peer can only detect whether its successor is not alive. If the successor is not alive, the current peer updates own first and second successor table first and then tells predecessor to update the predecessor's first and second successor table. The current can know which peer is its first predecessor by the ping request it received.
+\end{document}
