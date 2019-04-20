@@ -31,7 +31,7 @@
 	\begin{enumerate}
 		\item python version: 3.7.1
 		\item press ctrl+c twice to kill a peer, please
-		\item demo link: \href{http://v.youku.com/}{http://v.youku.com/}
+		\item demo link: \href{https://youtu.be/kQ6_WuDpSrc}{https://youtu.be/kQ6\_WuDpSrc}
 	\end{enumerate}
 
 	\section{Introduction}
@@ -39,7 +39,7 @@
 	
 	\section{Ping}
 		The interval between pings is 10 second. The timeout for receiving ping response is 2 second. The number of lost packets before assuming the peer is killed is 3. The corrsponding code shows below.
-		Main thread: time.sleep(10) is the interval between pings.
+		Main thread: time.sleep(10) is the interval between pings. It also shows that I use UDP for ping.
 		\begin{lstlisting}
 			# send the ping request every 10s
 			while True:
@@ -77,7 +77,44 @@
 					print(f'My second successor is now peer {second_successive_id}.')
 					Kill_clientSocket.close()
 		\end{lstlisting}
-			I have tested my program several times and find this time is reasonable. Ping request does not make the link crowded, but can know when the successor is not alive in a short time.
+			I have tested my program several times and find this time is reasonable. Ping request does not make the link crowded, but peers can know when the successor is not alive in a short time.
+	\section{File request and Departure}
+		I use TCP for the sending file request/response message and sending the departure message.
+		\begin{lstlisting}
+		# request a file (TCP)
+		def request_file():
+			global predecessor_id
+			global work_flag
+			while True:
+				command = input()
+				command = command.split()
+				# file request/response message
+				if len(command) == 2 and command[0] == 'request' and command[1].isdigit():
+					filename = int(command[1])
+					if filename >= 0 and filename < 10000:
+						print(f'File request message for {filename} has been sent to my successor.')
+						# file client
+						TCP_clientSocket = socket(AF_INET, SOCK_STREAM)
+						TCP_clientSocket.connect(('127.0.0.1', 50000 + first_successive_id))
+						file_request = ' '.join((str(own_id), str(own_id), str(filename)))
+						TCP_clientSocket.send(file_request.encode())
+						TCP_clientSocket.close()
+				# departure message
+      		elif command and command[0] == 'quit':
+					TCP_clientSocket = socket(AF_INET, SOCK_STREAM)
+					TCP_clientSocket.connect(('127.0.0.1', 50000 + predecessor_id[0]))
+					quit_message = ' '.join((str(first_successive_id), str(second_successive_id), 'quit'))
+					TCP_clientSocket.send(quit_message.encode())                
+					TCP_clientSocket.close()
+					TCP_clientSocket = socket(AF_INET, SOCK_STREAM)
+					TCP_clientSocket.connect(('127.0.0.1', 50000 + predecessor_id[1]))
+					quit_message = ' '.join((str(predecessor_id[0]), str(first_successive_id), 'quit'))
+					TCP_clientSocket.send(quit_message.encode())                
+					TCP_clientSocket.close()
+					print(f'Peer {own_id} will depart from the network.')
+					work_flag = 0
+		\end{lstlisting}
 	\section{possible improvements}
-		For detecting the killing peer event, I think that the peer can only detect whether its successor is not alive. If the successor is not alive, the current peer updates own first and second successor table first and then tells predecessor to update the predecessor's first and second successor table. The current can know which peer is its first predecessor by the ping request it received.
+		For detecting the killing peer event, I think that the peer can detect whether its successor is not alive only. If the successor is not alive, the current peer updates own first and second successor table first and then tells predecessor to update the predecessor's first and second successor table. The current can know which peer is its first predecessor by the ping request it received. By doing this, the program gets rid of the situation that current peer ask its successor what is the second successor is, but the first successor have not update its new successor.
+		
 \end{document}

@@ -124,7 +124,7 @@ def receive_ping_response_second():
             print(f'My second successor is now peer {second_successive_id}.')
             Kill_clientSocket.close()
 
-# request a file (TCP)
+# request a file (TCP) and quit command
 def request_file():
     global predecessor_id
     global work_flag
