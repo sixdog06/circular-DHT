@@ -8,7 +8,7 @@ import os
 import random
 import numpy as np
 import re
-300         
+         
 # send packets of file (UDP with ack)
 def snd(file_clientSocket, receiver_id, event, sequence_number, ack_num, num_of_bytes, filedata):
     sender_message = ' '.join((event, str(sequence_number), str(ack_num), str(num_of_bytes)))
